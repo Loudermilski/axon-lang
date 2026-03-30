@@ -96,7 +96,7 @@ class HttpOp:
 class McpOp:
     server: str
     tool: str
-    args: Optional[Dict[str, Any]] = None
+    args: Optional[JsonObject] = None
 
 
 # Union type for operations

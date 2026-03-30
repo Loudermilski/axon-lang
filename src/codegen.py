@@ -8,7 +8,7 @@ Fixes:
   - BUDGET latency wraps execution in Promise.race timeout
 """
 
-from ast_nodes import *
+from .ast_nodes import *
 from typing import Dict, Set, List, Optional
 import re
 

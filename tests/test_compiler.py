@@ -3,18 +3,25 @@ AXON Compiler Test Suite
 Run: pytest tests/test_compiler.py -v
 """
 import sys, os, pytest
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from lexer import Lexer, TokenType
-from parser import Parser
-from codegen import TypeScriptGenerator, CompileError, validate_graph
-from ast_nodes import *
+from src.lexer import Lexer, TokenType
+from src.parser import Parser
+from src.codegen import TypeScriptGenerator, CompileError, validate_graph
+from src.codegen_python import PythonGenerator
+from src.ast_nodes import *
 
 
 def compile_axon(source: str) -> str:
     tokens = Lexer(source).tokenize()
     program = Parser(tokens).parse_program()
     return TypeScriptGenerator().generate(program)
+
+
+def compile_axon_py(source: str) -> str:
+    tokens = Lexer(source).tokenize()
+    program = Parser(tokens).parse_program()
+    return PythonGenerator().generate(program)
 
 
 # ─── Lexer Tests ──────────────────────────────────────────────────────────────
@@ -278,6 +285,154 @@ GRAPH g IN items<cart_item[]> OUT total<dollar_amount>
         assert "export async function authenticate_user" in out
         assert "Invalid email_address" in out   # semantic validation
         assert "Promise.race" in out             # budget
+
+
+# ─── MCP Tests ───────────────────────────────────────────────────────────────
+
+class TestMcp:
+    def test_mcp_token_lexed(self):
+        src = "mcp.brave.web_search"
+        tokens = Lexer(src).tokenize()
+        mcp_tokens = [t for t in tokens if t.type == TokenType.MCP]
+        assert len(mcp_tokens) == 1
+        assert mcp_tokens[0].value == "mcp.brave.web_search"
+
+    def test_mcp_op_parsed(self):
+        src = """
+GRAPH g IN q<string> OUT r<string>
+  NODE search
+    OP      mcp.brave.web_search({query: IN.q})
+    OUT     r<string>
+  RETURN search
+"""
+        tokens = Lexer(src).tokenize()
+        program = Parser(tokens).parse_program()
+        node = program.graphs[0].nodes[0]
+        assert isinstance(node.op, McpOp)
+        assert node.op.server == "brave"
+        assert node.op.tool == "web_search"
+        assert "query" in node.op.args.pairs
+
+    def test_mcp_ts_codegen(self):
+        src = """
+GRAPH g IN q<string> OUT r<string>
+  NODE search
+    OP      mcp.brave.web_search({query: IN.q})
+    OUT     r<string>
+  RETURN search
+"""
+        out = compile_axon(src)
+        assert "await mcp.brave.web_search" in out
+        assert "inputs.q" in out
+
+    def test_mcp_py_codegen(self):
+        src = """
+GRAPH g IN q<string> OUT r<string>
+  NODE search
+    OP      mcp.brave.web_search({query: IN.q})
+    OUT     r<string>
+  RETURN search
+"""
+        out = compile_axon_py(src)
+        assert "await mcp['brave']['web_search']" in out
+        assert "inputs['q']" in out
+
+    def test_full_mcp_workflow_compiles(self):
+        src = open(os.path.join(os.path.dirname(__file__), 'mcp_workflow.axon')).read()
+        out_ts = compile_axon(src)
+        assert "await mcp.brave.web_search" in out_ts
+        assert "await mcp.claude.summarize" in out_ts
+        out_py = compile_axon_py(src)
+        assert "mcp['brave']['web_search']" in out_py
+        assert "mcp['claude']['summarize']" in out_py
+
+    def test_mcp_no_args(self):
+        src = """
+GRAPH g IN q<string> OUT r<string>
+  NODE ping
+    OP      mcp.health.check()
+    OUT     r<string>
+  RETURN ping
+"""
+        out = compile_axon(src)
+        assert "mcp.health.check({})" in out
+
+
+# ─── Python Target Tests ─────────────────────────────────────────────────────
+
+class TestPythonCodeGen:
+    def test_function_emitted(self):
+        src = """
+GRAPH g IN x<string> OUT r<string>
+  NODE fetch OP db.read t WHERE id == IN.x OUT r<string>
+  RETURN fetch
+"""
+        out = compile_axon_py(src)
+        assert "async def g(" in out
+
+    def test_semantic_validator_emitted(self):
+        src = """
+GRAPH g IN userId<user_id> OUT r<string>
+  NODE fetch OP db.read t WHERE id == IN.userId OUT r<string>
+  RETURN fetch
+"""
+        out = compile_axon_py(src)
+        assert "Invalid user_id" in out
+
+    def test_parallel_uses_gather(self):
+        src = """
+GRAPH g IN x<string> OUT r<string>
+  NODE a OP db.read ta WHERE id == IN.x OUT r<string>
+  NODE b OP db.read tb WHERE id == IN.x OUT r<string>
+  NODE c OP db.read tc WHERE id == IN.x OUT r<string> AFTER a, b
+  RETURN c
+"""
+        out = compile_axon_py(src)
+        assert "asyncio.gather" in out
+
+    def test_budget_uses_wait_for(self):
+        src = """
+GRAPH g IN x<string> OUT r<string>
+  BUDGET latency=300ms
+  NODE fetch OP db.read t WHERE id == IN.x OUT r<string>
+  RETURN fetch
+"""
+        out = compile_axon_py(src)
+        assert "asyncio.wait_for" in out
+        assert "0.3" in out
+
+    def test_rollback_emitted(self):
+        src = """
+GRAPH g IN x<string> OUT r<order_record>
+  NODE create OP db.write orders {userId: IN.x}
+    OUT r<order_record>
+    INVERSE db.delete orders WHERE id == create.id
+  RETURN create
+  ROLLBACK ON FAULT [create]
+"""
+        out = compile_axon_py(src)
+        assert "rollback_stack" in out
+        assert "__rollback_create" in out
+
+    def test_full_order_processor_compiles_py(self):
+        src = open(os.path.join(os.path.dirname(__file__), 'order_processor.axon')).read()
+        out = compile_axon_py(src)
+        assert "async def process_order" in out
+        assert "asyncio.gather" in out
+        assert "rollback_stack" in out
+
+    def test_full_auth_flow_compiles_py(self):
+        src = open(os.path.join(os.path.dirname(__file__), 'auth_flow.axon')).read()
+        out = compile_axon_py(src)
+        assert "async def authenticate_user" in out
+        assert "Invalid email_address" in out
+
+    def test_python_output_is_valid_syntax(self):
+        import ast as pyast
+        for fname in ['order_processor.axon', 'auth_flow.axon', 'mcp_workflow.axon']:
+            src = open(os.path.join(os.path.dirname(__file__), fname)).read()
+            out = compile_axon_py(src)
+            pyast.parse(out)  # raises SyntaxError if invalid
 
 
 # ─── Token Count Benchmark ────────────────────────────────────────────────────

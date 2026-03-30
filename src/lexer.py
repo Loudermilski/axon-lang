@@ -232,6 +232,7 @@ class Lexer:
         word = "".join(buf)
 
         # Check for compound keywords like db.read, email.send
+        # Also handle mcp.server.tool as a single MCP token
         if self.peek() == ".":
             saved_pos = self.pos
             saved_line = self.line
@@ -243,6 +244,15 @@ class Lexer:
             compound = word + "." + "".join(suffix_buf)
             if compound in COMPOUND_KEYWORDS:
                 return Token(COMPOUND_KEYWORDS[compound], compound, line, col)
+            # mcp.server.tool — consume second dot + tool name
+            if word == "mcp" and self.peek() == ".":
+                self.advance()  # consume second dot
+                tool_buf = []
+                while self.peek().isalnum() or self.peek() == "_":
+                    tool_buf.append(self.advance())
+                if tool_buf:
+                    full = compound + "." + "".join(tool_buf)
+                    return Token(TokenType.MCP, full, line, col)
             # Not a compound keyword — restore and emit just the word + dot separately
             self.pos = saved_pos
             self.line = saved_line

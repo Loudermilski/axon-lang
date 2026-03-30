@@ -1,0 +1,25 @@
+-- mcp_workflow.axon
+-- Uses MCP to search the web, summarize results, and store them.
+
+GRAPH research_topic
+  IN    query<string>, userId<user_id>
+  OUT   result<order_record>
+  BUDGET latency=5000ms
+
+  NODE search
+    OP      mcp.brave.web_search({query: IN.query})
+    OUT     results<string>
+
+  NODE summarize
+    OP      mcp.claude.summarize({text: search, maxLength: 500})
+    OUT     summary<string>
+    AFTER   search
+
+  NODE store_result
+    OP      db.write research {userId: IN.userId, query: IN.query, summary: summarize}
+    OUT     result<order_record>
+    INVERSE db.delete research WHERE userId == IN.userId
+    AFTER   summarize
+
+  RETURN  store_result
+  ROLLBACK ON FAULT [store_result]

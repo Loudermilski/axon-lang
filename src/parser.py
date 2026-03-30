@@ -4,8 +4,8 @@ Converts a token stream into an AST.
 """
 
 from typing import List, Optional, Any
-from lexer import Token, TokenType
-from ast_nodes import *
+from .lexer import Token, TokenType
+from .ast_nodes import *
 
 
 class ParseError(Exception):
@@ -225,6 +225,8 @@ class Parser:
         elif tok.type in (TokenType.HTTP_GET, TokenType.HTTP_POST,
                           TokenType.HTTP_PUT, TokenType.HTTP_DELETE):
             return self.parse_http()
+        elif tok.type == TokenType.MCP:
+            return self.parse_mcp()
         else:
             raise ParseError("Expected an operation keyword", tok)
 
@@ -294,6 +296,19 @@ class Parser:
         else:
             url = self.parse_ref()
         return HttpOp(method=method, url=url)
+
+    def parse_mcp(self) -> McpOp:
+        tok = self.expect(TokenType.MCP)
+        # Token value is "mcp.server.tool"
+        parts = tok.value.split(".")
+        server = parts[1]
+        tool = parts[2]
+        args = None
+        if self.match(TokenType.LPAREN):
+            if not self.check(TokenType.RPAREN):
+                args = self.parse_json_object()
+            self.expect(TokenType.RPAREN)
+        return McpOp(server=server, tool=tool, args=args)
 
     # -------------------------------------------------------------------------
     # Fault Handling
