@@ -1,0 +1,42 @@
+-- auth_flow.axon
+-- Authenticates a user: validate credentials, check account status,
+-- issue JWT token, log the session, notify on new device.
+
+GRAPH authenticate_user
+  IN    email<email_address>, password<string>, deviceId<string>
+  OUT   token<jwt_token>
+  BUDGET latency=300ms, tokens=500
+
+  NODE fetch_account
+    OP      db.read accounts WHERE email == IN.email
+    OUT     account<user_record>
+    FAULT   fetch_account == null -> HALT[account_not_found]
+
+  NODE verify_password
+    OP      http.post URL="https://auth.internal/verify" 
+    OUT     verified<boolean>
+    FAULT   verified == false -> HALT[invalid_credentials]
+    AFTER   fetch_account
+
+  NODE check_status
+    OP      ASSERT fetch_account.status != "suspended"
+    FAULT   -> HALT[account_suspended]
+    AFTER   fetch_account
+
+  NODE issue_token
+    OP      http.post URL="https://auth.internal/token"
+    OUT     token<jwt_token>
+    AFTER   verify_password, check_status
+
+  NODE log_session
+    OP      db.write sessions {userId: fetch_account.id, deviceId: IN.deviceId, token: issue_token}
+    INVERSE db.delete sessions WHERE userId == fetch_account.id
+    AFTER   issue_token
+
+  NODE notify_device
+    OP      email.send TO=fetch_account.email TEMPLATE=new_device_login
+    ASYNC   true
+    AFTER   log_session
+
+  RETURN  issue_token
+  ROLLBACK ON FAULT [log_session]

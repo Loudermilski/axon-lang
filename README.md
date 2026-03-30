@@ -1,5 +1,3 @@
-# axon-lang
-New Coding language meant for AI
 # AXON
 
 > A programming language designed for AI to write — not humans.
@@ -84,7 +82,7 @@ The compiler automatically:
 
 ## Getting Started
 ```bash
-git clone https://github.com/YOUR_USERNAME/axon-lang
+git clone https://github.com/Loudermilski/axon-lang
 cd axon-lang
 python axonc.py tests/order_processor.axon --out output/order_processor.ts
 ```
@@ -106,7 +104,7 @@ python axonc.py tests/order_processor.axon --out output/order_processor.ts
 The AXON compiler **refuses to compile** programs that violate these rules:
 
 1. `db.write` without `INVERSE` → compile error
-2. `RETURN` references nonexistent node → compile error  
+2. `RETURN` references nonexistent node → compile error
 3. `AFTER` references nonexistent node → compile error
 4. Circular node dependencies → compile error
 

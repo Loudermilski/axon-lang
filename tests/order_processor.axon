@@ -1,0 +1,41 @@
+-- order_processor.axon
+-- Processes a customer order: validate user, calc total, check funds,
+-- create order, debit balance, send confirmation.
+
+GRAPH process_order
+  IN    userId<user_id>, items<cart_item[]>
+  OUT   order<order_record>
+  BUDGET latency=500ms
+
+  NODE fetch_user
+    OP      db.read users WHERE id == IN.userId
+    OUT     user<user_record>
+    FAULT   fetch_user == null -> HALT[not_found]
+
+  NODE calc_total
+    OP      SUM items[].price * items[].quantity
+    OUT     total<dollar_amount>
+
+  NODE check_funds
+    OP      ASSERT fetch_user.balance >= calc_total
+    FAULT   -> HALT[insufficient_funds]
+    AFTER   fetch_user, calc_total
+
+  NODE create_order
+    OP      db.write orders {userId: IN.userId, total: calc_total, status: "pending"}
+    OUT     order<order_record>
+    INVERSE db.delete orders WHERE id == create_order.id
+    AFTER   check_funds
+
+  NODE debit_user
+    OP      db.write users WHERE id == IN.userId {balance: fetch_user.balance}
+    INVERSE db.write users WHERE id == IN.userId {balance: fetch_user.balance}
+    AFTER   create_order
+
+  NODE notify
+    OP      email.send TO=fetch_user.email TEMPLATE=order_confirmed
+    ASYNC   true
+    AFTER   debit_user
+
+  RETURN  create_order
+  ROLLBACK ON FAULT [debit_user, create_order]
