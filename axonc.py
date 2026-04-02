@@ -15,6 +15,7 @@ from src.parser import Parser
 from src.codegen import TypeScriptGenerator
 from src.codegen_python import PythonGenerator
 from src.visualizer import generate_mermaid
+from src.insight import analyze_program
 
 TARGET_EXT = {"ts": ".ts", "py": ".py"}
 TARGET_GEN = {"ts": TypeScriptGenerator, "py": PythonGenerator}
@@ -47,21 +48,28 @@ def main():
     ap.add_argument("--target", choices=["ts", "py"], default="ts",
                     help="Compile target: ts (TypeScript) or py (Python)")
     ap.add_argument("--viz", action="store_true", help="Generate Mermaid visualization")
+    ap.add_argument("--insight", action="store_true", help="Run logic graph insight analysis")
     args = ap.parse_args()
 
     with open(args.input, "r") as f:
         source = f.read()
 
-    if args.viz:
+    if args.viz or args.insight:
         lexer = Lexer(source)
         tokens = lexer.tokenize()
         parser = Parser(tokens)
         program = parser.parse_program()
-        viz = generate_mermaid(program)
-        out_path = args.out or args.input.replace(".axon", ".mmd")
-        with open(out_path, "w") as f:
-            f.write(viz)
-        print(f"[axonc] Mermaid diagram written to {out_path}")
+
+        if args.viz:
+            viz = generate_mermaid(program)
+            out_path = args.out or args.input.replace(".axon", ".mmd")
+            with open(out_path, "w") as f:
+                f.write(viz)
+            print(f"[axonc] Mermaid diagram written to {out_path}")
+
+        if args.insight:
+            report = analyze_program(program)
+            print(report)
         return
 
     output = compile_axon(source, target=args.target, source_name=args.input)

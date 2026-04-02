@@ -12,10 +12,15 @@
 ## Top Level
 
 ```ebnf
-program         ::= types_block? graph+
+program         ::= types_block? actor_block* graph+
 
 types_block     ::= "TYPES" "{" type_def* "}"
 type_def        ::= identifier "{" param_list "}"
+
+actor_block     ::= "ACTOR" identifier "{"
+                      "STATE" "{" param_list "}"
+                      graph+
+                    "}"
 
 graph           ::= "GRAPH" identifier
                     "IN"     param_list
@@ -91,6 +96,7 @@ call_op         ::= "CALL" identifier "(" json_object? ")"
 for_each_op     ::= "FOR EACH" identifier "IN" ref "DO" operation
 while_op        ::= "WHILE" condition "DO" operation
 match_op        ::= "MATCH" ref "{" (value "->" operation)* "}"
+stream_op       ::= "STREAM" operation "TO" identifier
 ```
 
 ---

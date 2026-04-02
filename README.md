@@ -123,9 +123,9 @@ The AXON compiler **refuses to compile** programs that violate these rules:
 
 ## Status
 
-Beta prototype (v0.3-alpha). Compiler supports modular graphs, custom types,
-conditional logic, human-in-the-loop steps, loops (FOR EACH), and
-pattern matching. 54 tests passing.
+Beta prototype (v0.4-beta). Compiler supports modular graphs, custom types,
+conditional logic, human-in-the-loop steps, loops, and pattern matching.
+Includes an Insight Engine for graph optimization and a Simulation Runtime.
 
 **This is a research language exploring what AI-native execution looks like.**
 Contributions and critique welcome.

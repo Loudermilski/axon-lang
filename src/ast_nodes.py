@@ -43,6 +43,9 @@ class Ref:
             return {self.parts[0]}
         return set()
 
+    def is_state(self) -> bool:
+        return self.parts[0] == "STATE"
+
 
 @dataclass
 class Condition:
@@ -187,6 +190,15 @@ class ForEachOp:
 
 
 @dataclass
+class StreamOp:
+    operation: 'Operation'
+    target: str
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.operation.get_refs(node_names)
+
+
+@dataclass
 class MatchOp:
     ref: Ref
     arms: List[tuple[Any, 'Operation']] # value -> operation
@@ -210,7 +222,7 @@ class WhileOp:
 
 
 # Union type for operations
-Operation = DbReadOp | DbWriteOp | DbDeleteOp | AssertOp | ComputeOp | EmailOp | HttpOp | McpOp | HumanOp | CallOp | ForEachOp | WhileOp | MatchOp
+Operation = DbReadOp | DbWriteOp | DbDeleteOp | AssertOp | ComputeOp | EmailOp | HttpOp | McpOp | HumanOp | CallOp | ForEachOp | WhileOp | MatchOp | StreamOp
 
 
 @dataclass
@@ -262,6 +274,14 @@ class CustomType:
 
 
 @dataclass
+class Actor:
+    name: str
+    state: List[TypedParam]
+    graphs: List[Graph]
+
+
+@dataclass
 class Program:
     custom_types: List[CustomType] = field(default_factory=list)
+    actors: List[Actor] = field(default_factory=list)
     graphs: List[Graph] = field(default_factory=list)

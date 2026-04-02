@@ -39,7 +39,7 @@ The compiler runs nodes in parallel unless linked via `AFTER` or data refs.
     AFTER   check_db
 ```
 
-### Iteration and Matching (v0.3-alpha)
+### Iteration and Matching (v0.4-beta)
 AXON now supports loops and pattern matching for complex logic:
 
 **For Each:**
@@ -73,3 +73,8 @@ Use for sensitive decisions:
 - **Positional Args:** Do NOT use positional args in `CALL`. Use `CALL graph({key: val})`.
 - **Await:** Do NOT worry about `async/await`. The AXON compiler handles all concurrency.
 - **Error Handling:** Do NOT use try/catch. Use `FAULT` clauses.
+
+## 5. Performance and Insights
+Run `python axonc.py app.axon --insight` to check:
+- **Parallelism Score:** A score of > 1.0 means your logic is being optimized for concurrency.
+- **Safety Score:** Alerts you to missing `FAULT` handlers or `INVERSE` actions.

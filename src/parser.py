@@ -60,10 +60,29 @@ class Parser:
                 custom_types.append(self.parse_custom_type())
             self.expect(TokenType.RBRACE)
 
+        actors = []
+        while self.match(TokenType.ACTOR):
+            actors.append(self.parse_actor())
+
         graphs = []
         while not self.check(TokenType.EOF):
             graphs.append(self.parse_graph())
-        return Program(custom_types=custom_types, graphs=graphs)
+        return Program(custom_types=custom_types, actors=actors, graphs=graphs)
+
+    def parse_actor(self) -> Actor:
+        name = self.expect(TokenType.IDENTIFIER).value
+        self.expect(TokenType.LBRACE)
+        self.expect(TokenType.STATE)
+        self.expect(TokenType.LBRACE)
+        state = self.parse_param_list()
+        self.expect(TokenType.RBRACE)
+
+        graphs = []
+        while self.check(TokenType.GRAPH):
+            graphs.append(self.parse_graph())
+
+        self.expect(TokenType.RBRACE)
+        return Actor(name=name, state=state, graphs=graphs)
 
     def parse_custom_type(self) -> CustomType:
         name = self.expect(TokenType.IDENTIFIER).value
@@ -256,6 +275,8 @@ class Parser:
             return self.parse_while()
         elif tok.type == TokenType.MATCH:
             return self.parse_match()
+        elif tok.type == TokenType.STREAM:
+            return self.parse_stream()
         else:
             raise ParseError("Expected an operation keyword", tok)
 
@@ -301,7 +322,10 @@ class Parser:
     def parse_email(self) -> EmailOp:
         self.expect(TokenType.EMAIL_SEND)
         # TO=ref
-        self.expect(TokenType.IDENTIFIER)  # TO
+        if self.peek().type == TokenType.TO:
+            self.advance()
+        else:
+            self.expect(TokenType.IDENTIFIER) # TO
         self.expect(TokenType.EQUALS)
         to = self.parse_ref()
         # TEMPLATE=name
@@ -387,6 +411,13 @@ class Parser:
             self.match(TokenType.COMMA)
         self.expect(TokenType.RBRACE)
         return MatchOp(ref=ref, arms=arms)
+
+    def parse_stream(self) -> StreamOp:
+        self.expect(TokenType.STREAM)
+        op = self.parse_operation()
+        self.expect(TokenType.TO)
+        target = self.expect(TokenType.IDENTIFIER).value
+        return StreamOp(operation=op, target=target)
 
     # -------------------------------------------------------------------------
     # Fault Handling

@@ -54,6 +54,10 @@ class TokenType(Enum):
     WHILE       = auto()
     DO          = auto()
     MATCH       = auto()
+    ACTOR       = auto()
+    STATE       = auto()
+    STREAM      = auto()
+    TO          = auto()
 
     # Fault actions
     HALT        = auto()
@@ -127,6 +131,10 @@ KEYWORDS = {
     "WHILE":    TokenType.WHILE,
     "DO":       TokenType.DO,
     "MATCH":    TokenType.MATCH,
+    "ACTOR":    TokenType.ACTOR,
+    "STATE":    TokenType.STATE,
+    "STREAM":   TokenType.STREAM,
+    "TO":       TokenType.TO,
     "INVERSE":  TokenType.INVERSE,
     "ASYNC":    TokenType.ASYNC,
     "AFTER":    TokenType.AFTER,
