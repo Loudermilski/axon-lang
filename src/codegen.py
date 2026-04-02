@@ -84,6 +84,27 @@ def condition_to_query_obj(cond: Condition, node_out_types: Dict[str, str] = Non
 
 def compute_to_ts(op: ComputeOp, node_out_types: Dict[str, str] = None) -> str:
     expr = op.expression.strip()
+
+    # Handle Ternary MAP: MAP cond -> true_val, false_val
+    ternary_match = re.search(r'^(.*)\s*->\s*(.*)\s*,\s*(.*)$', expr)
+    if op.function == "MAP" and ternary_match:
+        cond, v_true, v_false = ternary_match.groups()
+        cond = re.sub(r'IN\s*\.\s*(\w+)', r'inputs.\1', cond)
+
+        def quote_if_str(v):
+            v = v.strip()
+            if v in ("true", "false", "null") or v.replace('.','',1).isdigit():
+                return v
+            return f"'{v}'" if not (v.startswith("'") or v.startswith('"')) else v
+
+        return f"({cond.strip()}) ? {quote_if_str(v_true)} : {quote_if_str(v_false)}"
+
+    # Handle basic math: SUM IN.val * 2
+    math_match = re.match(r'^IN\s*\.\s*(\w+)\s*([\+\-\*\/])\s*(.*)$', expr)
+    if op.function == "SUM" and math_match:
+        var, op_char, val = math_match.groups()
+        return f"inputs.{var} {op_char} {val.strip()}"
+
     array_match = re.match(r'^(\w+)\s*\[\s*\]\s*\.(.*)', expr)
     if op.function == "SUM" and array_match:
         col = array_match.group(1)
