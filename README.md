@@ -85,6 +85,9 @@ The compiler automatically:
 git clone https://github.com/Loudermilski/axon-lang
 cd axon-lang
 python axonc.py tests/order_processor.axon --out output/order_processor.ts
+
+# Generate a visual Mermaid diagram
+python axonc.py tests/order_processor.axon --viz
 ```
 
 **Requirements:** Python 3.10+
@@ -120,8 +123,9 @@ The AXON compiler **refuses to compile** programs that violate these rules:
 
 ## Status
 
-Early prototype. Compiler is functional. Two example programs compile and
-produce correct TypeScript. 29 tests passing.
+Beta prototype (v0.3-alpha). Compiler supports modular graphs, custom types,
+conditional logic, human-in-the-loop steps, loops (FOR EACH), and
+pattern matching. 54 tests passing.
 
 **This is a research language exploring what AI-native execution looks like.**
 Contributions and critique welcome.

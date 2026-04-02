@@ -12,7 +12,10 @@
 ## Top Level
 
 ```ebnf
-program         ::= graph+
+program         ::= types_block? graph+
+
+types_block     ::= "TYPES" "{" type_def* "}"
+type_def        ::= identifier "{" param_list "}"
 
 graph           ::= "GRAPH" identifier
                     "IN"     param_list
@@ -37,6 +40,7 @@ typed_param     ::= identifier "<" semantic_type ">"
 
 ```ebnf
 node            ::= "NODE" identifier
+                    if_clause?
                     op_clause
                     out_clause?
                     fault_clause*
@@ -44,6 +48,7 @@ node            ::= "NODE" identifier
                     async_clause?
                     after_clause?
 
+if_clause       ::= "IF" condition
 op_clause       ::= "OP" operation
 out_clause      ::= "OUT" typed_param
 fault_clause    ::= "FAULT" fault_condition "->" fault_action
@@ -65,6 +70,10 @@ operation       ::= db_read
                   | email_op
                   | http_op
                   | mcp_op
+                  | human_op
+                  | call_op
+                  | for_each_op
+                  | match_op
 
 db_read         ::= "db.read" identifier "WHERE" condition
 db_write        ::= "db.write" identifier (filter)? json_object
@@ -76,6 +85,12 @@ compute_op      ::= "SUM" | "AVG" | "COUNT" | "MAP" | "FILTER" expression
 email_op        ::= "email.send" "TO=" ref "TEMPLATE=" identifier
 http_op         ::= "http." method "URL=" string_literal (payload)?
 mcp_op          ::= "mcp." identifier "." identifier (args)?
+human_op        ::= "human.approve" "(" string_literal ")"
+                  | "human.input" "(" string_literal ")"
+call_op         ::= "CALL" identifier "(" json_object? ")"
+for_each_op     ::= "FOR EACH" identifier "IN" ref "DO" operation
+while_op        ::= "WHILE" condition "DO" operation
+match_op        ::= "MATCH" ref "{" (value "->" operation)* "}"
 ```
 
 ---

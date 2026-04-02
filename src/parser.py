@@ -53,10 +53,24 @@ class Parser:
     # -------------------------------------------------------------------------
 
     def parse_program(self) -> Program:
+        custom_types = []
+        if self.match(TokenType.TYPES):
+            self.expect(TokenType.LBRACE)
+            while not self.check(TokenType.RBRACE, TokenType.EOF):
+                custom_types.append(self.parse_custom_type())
+            self.expect(TokenType.RBRACE)
+
         graphs = []
         while not self.check(TokenType.EOF):
             graphs.append(self.parse_graph())
-        return Program(graphs=graphs)
+        return Program(custom_types=custom_types, graphs=graphs)
+
+    def parse_custom_type(self) -> CustomType:
+        name = self.expect(TokenType.IDENTIFIER).value
+        self.expect(TokenType.LBRACE)
+        fields = self.parse_param_list()
+        self.expect(TokenType.RBRACE)
+        return CustomType(name=name, fields=fields)
 
     def parse_graph(self) -> Graph:
         self.expect(TokenType.GRAPH)
@@ -166,6 +180,10 @@ class Parser:
         self.expect(TokenType.NODE)
         name = self.expect(TokenType.IDENTIFIER).value
 
+        if_cond = None
+        if self.match(TokenType.IF):
+            if_cond = self.parse_condition()
+
         self.expect(TokenType.OP)
         op = self.parse_operation()
 
@@ -195,6 +213,7 @@ class Parser:
         return Node(
             name=name,
             op=op,
+            if_cond=if_cond,
             out=out,
             faults=faults,
             inverse=inverse,
@@ -227,6 +246,16 @@ class Parser:
             return self.parse_http()
         elif tok.type == TokenType.MCP:
             return self.parse_mcp()
+        elif tok.type in (TokenType.HUMAN_APPROVE, TokenType.HUMAN_INPUT):
+            return self.parse_human()
+        elif tok.type == TokenType.CALL:
+            return self.parse_call()
+        elif tok.type == TokenType.FOR:
+            return self.parse_for_each()
+        elif tok.type == TokenType.WHILE:
+            return self.parse_while()
+        elif tok.type == TokenType.MATCH:
+            return self.parse_match()
         else:
             raise ParseError("Expected an operation keyword", tok)
 
@@ -309,6 +338,55 @@ class Parser:
                 args = self.parse_json_object()
             self.expect(TokenType.RPAREN)
         return McpOp(server=server, tool=tool, args=args)
+
+    def parse_human(self) -> HumanOp:
+        tok = self.advance()
+        kind = "approve" if tok.type == TokenType.HUMAN_APPROVE else "input"
+        self.expect(TokenType.LPAREN)
+        prompt = self.expect(TokenType.STRING).value
+        self.expect(TokenType.RPAREN)
+        return HumanOp(kind=kind, prompt=prompt)
+
+    def parse_call(self) -> CallOp:
+        self.expect(TokenType.CALL)
+        name = self.expect(TokenType.IDENTIFIER).value
+        args = None
+        if self.match(TokenType.LPAREN):
+            if not self.check(TokenType.RPAREN):
+                args = self.parse_json_object()
+            self.expect(TokenType.RPAREN)
+        return CallOp(graph_name=name, args=args)
+
+    def parse_for_each(self) -> ForEachOp:
+        self.expect(TokenType.FOR)
+        self.expect(TokenType.EACH)
+        iterator = self.expect(TokenType.IDENTIFIER).value
+        self.expect(TokenType.IN)
+        collection = self.parse_ref()
+        self.expect(TokenType.DO)
+        operation = self.parse_operation()
+        return ForEachOp(iterator=iterator, collection=collection, operation=operation)
+
+    def parse_while(self) -> WhileOp:
+        self.expect(TokenType.WHILE)
+        condition = self.parse_condition()
+        self.expect(TokenType.DO)
+        operation = self.parse_operation()
+        return WhileOp(condition=condition, operation=operation)
+
+    def parse_match(self) -> MatchOp:
+        self.expect(TokenType.MATCH)
+        ref = self.parse_ref()
+        self.expect(TokenType.LBRACE)
+        arms = []
+        while not self.check(TokenType.RBRACE, TokenType.EOF):
+            val = self.parse_value()
+            self.expect(TokenType.ARROW)
+            op = self.parse_operation()
+            arms.append((val, op))
+            self.match(TokenType.COMMA)
+        self.expect(TokenType.RBRACE)
+        return MatchOp(ref=ref, arms=arms)
 
     # -------------------------------------------------------------------------
     # Fault Handling
