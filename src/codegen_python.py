@@ -47,7 +47,7 @@ def ref_to_py(ref, node_out_types: Dict[str, str] = None) -> str:
     if isinstance(ref, Ref):
         parts = ref.parts
         if parts[0] == "IN":
-            return f"inputs['{parts[1]}']" if len(parts) > 1 else "inputs"
+            return f"inputs.get('{parts[1]}')" if len(parts) > 1 else "inputs"
         node = parts[0]
         base = f"results['{node}']"
         if len(parts) == 1 or parts[1].upper() in ("OUT", "ERR"):
@@ -73,6 +73,11 @@ def condition_to_query_dict(cond: Condition, node_out_types: Dict[str, str] = No
         value = ref_to_py(cond.right, node_out_types)
         return f"{{'{field}': {value}}}"
     return f"{{'{ref_to_py(cond.left, node_out_types)}': {ref_to_py(cond.right, node_out_types)}}}"
+
+
+def build_deps_py(nodes: List[Node]) -> Dict[str, Set[str]]:
+    names = {n.name for n in nodes}
+    return {n.name: n.get_dependencies(names) for n in nodes}
 
 
 def compute_to_py(op: ComputeOp, node_out_types: Dict[str, str] = None) -> str:
@@ -151,6 +156,14 @@ def op_to_py(op: Operation, node_name: str, types: Dict[str, str] = None) -> str
     elif isinstance(op, McpOp):
         args = json_obj_to_py(op.args, t) if op.args else "{}"
         return f"await mcp['{op.server}']['{op.tool}']({args})"
+    elif isinstance(op, HumanOp):
+        if op.kind == "approve":
+            return f"await human.approve({ref_to_py(op.prompt, t)})"
+        else:
+            return f"await human.input({ref_to_py(op.prompt, t)})"
+    elif isinstance(op, CallOp):
+        args = json_obj_to_py(op.args, t) if op.args else "{}"
+        return f"await {op.graph_name}({args})"
     return "pass  # unsupported op"
 
 
@@ -167,10 +180,30 @@ class PythonGenerator:
 
     def generate(self, program: Program) -> str:
         self._header()
+        for ct in program.custom_types:
+            self._custom_type(ct)
         for graph in program.graphs:
             validate_graph(graph)
             self._graph(graph)
         return "\n".join(self.out)
+
+    def _custom_type(self, ct: CustomType):
+        self.e(f"class {ct.name}:")
+        self.i()
+        self.e("def __init__(self, data: dict):")
+        self.i()
+        for field in ct.fields:
+            self.e(f"self.{field.name} = data.get('{field.name}')")
+            v = SEMANTIC_VALIDATORS_PY.get(field.type.name)
+            if v:
+                self.e(v.format(val=f"self.{field.name}", name=f"{ct.name}.{field.name}"))
+        self.d()
+        self.e()
+        self.e("@classmethod")
+        self.e("def from_dict(cls, data: dict) -> " + ct.name + ":")
+        self.i(); self.e("return cls(data)"); self.d()
+        self.d()
+        self.e()
 
     def _header(self):
         self.e("# ──────────────────────────────────────────────────────────────")
@@ -199,6 +232,13 @@ class PythonGenerator:
         self.e("    if not condition:")
         self.e("        raise AxonFaultError('assertion_failed', {'condition': description})")
         self.e()
+        self.e("class HumanUtility:")
+        self.i()
+        self.e("async def approve(self, prompt: str) -> bool: return True")
+        self.e("async def input(self, prompt: str) -> str: return ''")
+        self.d()
+        self.e("human = HumanUtility()")
+        self.e()
 
     def _graph(self, graph: Graph):
         types: Dict[str, str] = {}
@@ -213,8 +253,7 @@ class PythonGenerator:
             if b.key == "latency":
                 latency_ms = b.value.replace("ms", "")
 
-        params = ", ".join(f"{p.name}: {py_type(p.type)}" for p in graph.inputs)
-        self.e(f"async def {graph.name}({params}) -> {ret_type}:")
+        self.e(f"async def {graph.name}(inputs: dict[str, Any]) -> {ret_type}:")
         self.i()
 
         # Input validation
@@ -222,10 +261,8 @@ class PythonGenerator:
         for p in graph.inputs:
             v = SEMANTIC_VALIDATORS_PY.get(p.type.name)
             if v:
-                self.e(v.format(val=p.name, name=p.name))
+                self.e(v.format(val=f"inputs.get('{p.name}')", name=p.name))
         self.e()
-
-        self.e("inputs = {" + ", ".join(f"'{p.name}': {p.name}" for p in graph.inputs) + "}")
         self.e("results: dict[str, Any] = {}")
         self.e("rollback_stack: list = []")
         self.e()
@@ -235,7 +272,7 @@ class PythonGenerator:
             self.e(f"async def __run() -> {ret_type}:")
             self.i()
 
-        waves = topo_waves(build_deps(graph.nodes))
+        waves = topo_waves(build_deps_py(graph.nodes))
         node_map = {n.name: n for n in graph.nodes}
 
         self.e("try:")
@@ -277,14 +314,23 @@ class PythonGenerator:
         # Define coroutine wrappers for each parallel node
         for node in nodes:
             code = op_to_py(node.op, node.name, types)
-            if code.startswith("await "):
-                # Already a coroutine call — wrap in async def
-                self.e(f"async def __{node.name}_task():")
-                self.i(); self.e(f"return {code}"); self.d()
+            self.e(f"async def __{node.name}_task():")
+            self.i()
+            if node.if_cond:
+                self.e(f"if {condition_to_py(node.if_cond, types)}:")
+                self.i()
+                if code.startswith("await "):
+                    self.e(f"return {code}")
+                else:
+                    self.e(f"return {code}")
+                self.d()
+                self.e("return None")
             else:
-                # Sync expression (e.g. compute) — wrap as coroutine
-                self.e(f"async def __{node.name}_task():")
-                self.i(); self.e(f"return {code}"); self.d()
+                if code.startswith("await "):
+                    self.e(f"return {code}")
+                else:
+                    self.e(f"return {code}")
+            self.d()
         vars_ = ", ".join(f"__{n.name}_r" for n in nodes)
         tasks = ", ".join(f"__{n.name}_task()" for n in nodes)
         self.e(f"{vars_} = await asyncio.gather({tasks})")
@@ -301,6 +347,10 @@ class PythonGenerator:
         bar = "─" * max(1, 46 - len(node.name))
         self.e(f"# ── NODE {node.name} {bar}")
 
+        if node.if_cond:
+            self.e(f"if {condition_to_py(node.if_cond, types)}:")
+            self.i()
+
         if node.is_async:
             code = op_to_py(node.op, node.name, types)
             self.e(f"async def __async_{node.name}():")
@@ -311,6 +361,8 @@ class PythonGenerator:
             self.i(); self.e(f"print(f'[AXON async {node.name}] {{e}}')"); self.d()
             self.d()
             self.e(f"asyncio.ensure_future(__async_{node.name}())")
+            if node.if_cond:
+                self.d()
             self.e()
             return
 
@@ -332,6 +384,9 @@ class PythonGenerator:
                     self.i(); self._fault_action(fault.action); self.d()
             if node.inverse and node.name in rollback_nodes:
                 self._rollback_append(node, types)
+
+        if node.if_cond:
+            self.d()
 
         self.e()
 

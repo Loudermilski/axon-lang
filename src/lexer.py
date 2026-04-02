@@ -24,6 +24,7 @@ class TokenType(Enum):
 
     # Node clause keywords
     OP          = auto()
+    IF          = auto()
     INVERSE     = auto()
     ASYNC       = auto()
     AFTER       = auto()
@@ -45,6 +46,9 @@ class TokenType(Enum):
     HTTP_PUT    = auto()
     HTTP_DELETE = auto()
     MCP         = auto()
+    HUMAN_APPROVE = auto()
+    HUMAN_INPUT = auto()
+    CALL        = auto()
 
     # Fault actions
     HALT        = auto()
@@ -111,6 +115,8 @@ KEYWORDS = {
     "BUDGET":   TokenType.BUDGET,
     "TYPES":    TokenType.TYPES,
     "OP":       TokenType.OP,
+    "IF":       TokenType.IF,
+    "CALL":     TokenType.CALL,
     "INVERSE":  TokenType.INVERSE,
     "ASYNC":    TokenType.ASYNC,
     "AFTER":    TokenType.AFTER,
@@ -138,6 +144,8 @@ COMPOUND_KEYWORDS = {
     "http.post":  TokenType.HTTP_POST,
     "http.put":   TokenType.HTTP_PUT,
     "http.delete":TokenType.HTTP_DELETE,
+    "human.approve": TokenType.HUMAN_APPROVE,
+    "human.input":   TokenType.HUMAN_INPUT,
 }
 
 

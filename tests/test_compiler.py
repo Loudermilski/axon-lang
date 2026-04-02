@@ -335,7 +335,7 @@ GRAPH g IN q<string> OUT r<string>
 """
         out = compile_axon_py(src)
         assert "await mcp['brave']['web_search']" in out
-        assert "inputs['q']" in out
+        assert "inputs.get('q')" in out
 
     def test_full_mcp_workflow_compiles(self):
         src = open(os.path.join(os.path.dirname(__file__), 'mcp_workflow.axon')).read()

@@ -4,7 +4,7 @@ These dataclasses represent the parsed structure of an AXON program.
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 
 
 @dataclass
@@ -29,17 +29,17 @@ class BudgetConstraint:
 
 
 @dataclass
-class JsonObject:
-    pairs: Dict[str, Any]  # key: value (value may be a Ref or literal)
-
-
-@dataclass
 class Ref:
     """A reference to a value: IN.userId, fetch_user.OUT, etc."""
     parts: List[str]
 
     def __str__(self):
         return ".".join(self.parts)
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        if self.parts[0] in node_names:
+            return {self.parts[0]}
+        return set()
 
 
 @dataclass
@@ -48,11 +48,37 @@ class Condition:
     op: str         # ==, !=, <, >, <=, >=
     right: Any      # Ref or literal
 
+    def __str__(self):
+        return f"{self.left} {self.op} {self.right}"
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        refs = set()
+        if isinstance(self.left, Ref):
+            refs.update(self.left.get_refs(node_names))
+        if isinstance(self.right, Ref):
+            refs.update(self.right.get_refs(node_names))
+        return refs
+
+
+@dataclass
+class JsonObject:
+    pairs: Dict[str, Any]  # key: value (value may be a Ref or literal)
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        refs = set()
+        for v in self.pairs.values():
+            if isinstance(v, Ref):
+                refs.update(v.get_refs(node_names))
+        return refs
+
 
 @dataclass
 class DbReadOp:
     table: str
     condition: Optional[Condition]
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.condition.get_refs(node_names) if self.condition else set()
 
 
 @dataclass
@@ -61,16 +87,28 @@ class DbWriteOp:
     condition: Optional[Condition]   # WHERE clause (for updates)
     data: JsonObject
 
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        refs = self.data.get_refs(node_names)
+        if self.condition:
+            refs.update(self.condition.get_refs(node_names))
+        return refs
+
 
 @dataclass
 class DbDeleteOp:
     table: str
     condition: Condition
 
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.condition.get_refs(node_names)
+
 
 @dataclass
 class AssertOp:
     condition: Condition
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.condition.get_refs(node_names)
 
 
 @dataclass
@@ -78,11 +116,17 @@ class ComputeOp:
     function: str   # SUM, AVG, COUNT, MAP, FILTER
     expression: str # raw expression string for now
 
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return set()
+
 
 @dataclass
 class EmailOp:
     to: Ref
     template: str
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.to.get_refs(node_names)
 
 
 @dataclass
@@ -91,6 +135,14 @@ class HttpOp:
     url: Any        # Ref or string literal
     payload: Optional[JsonObject] = None
 
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        refs = set()
+        if isinstance(self.url, Ref):
+            refs.update(self.url.get_refs(node_names))
+        if self.payload:
+            refs.update(self.payload.get_refs(node_names))
+        return refs
+
 
 @dataclass
 class McpOp:
@@ -98,9 +150,30 @@ class McpOp:
     tool: str
     args: Optional[JsonObject] = None
 
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.args.get_refs(node_names) if self.args else set()
+
+
+@dataclass
+class HumanOp:
+    kind: str       # approve | input
+    prompt: str
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return set()
+
+
+@dataclass
+class CallOp:
+    graph_name: str
+    args: Optional[JsonObject] = None
+
+    def get_refs(self, node_names: Set[str]) -> Set[str]:
+        return self.args.get_refs(node_names) if self.args else set()
+
 
 # Union type for operations
-Operation = DbReadOp | DbWriteOp | DbDeleteOp | AssertOp | ComputeOp | EmailOp | HttpOp | McpOp
+Operation = DbReadOp | DbWriteOp | DbDeleteOp | AssertOp | ComputeOp | EmailOp | HttpOp | McpOp | HumanOp | CallOp
 
 
 @dataclass
@@ -119,11 +192,19 @@ class FaultClause:
 class Node:
     name: str
     op: Operation
+    if_cond: Optional[Condition] = None
     out: Optional[TypedParam] = None
     faults: List[FaultClause] = field(default_factory=list)
     inverse: Optional[Operation] = None
     is_async: bool = False
     after: List[str] = field(default_factory=list)
+
+    def get_dependencies(self, node_names: Set[str]) -> Set[str]:
+        deps = set(a for a in self.after if a in node_names)
+        if self.if_cond:
+            deps.update(self.if_cond.get_refs(node_names))
+        deps.update(self.op.get_refs(node_names))
+        return deps
 
 
 @dataclass
@@ -138,5 +219,12 @@ class Graph:
 
 
 @dataclass
+class CustomType:
+    name: str
+    fields: List[TypedParam]
+
+
+@dataclass
 class Program:
-    graphs: List[Graph]
+    custom_types: List[CustomType] = field(default_factory=list)
+    graphs: List[Graph] = field(default_factory=list)
