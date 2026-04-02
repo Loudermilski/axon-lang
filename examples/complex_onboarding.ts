@@ -92,7 +92,7 @@ export async function onboarding_flow(
     const [__check_db_r, __identity_check_r, __set_tier_r] = await Promise.all([
       db.users.findOne({ email: inputs.userEmail }),  // check_db
       (inputs.age >= 18) ? verify_identity({ id: inputs.ident }) : Promise.resolve(null),  // identity_check
-      /* axon:MAP IN . age >= 18 -> adult , minor */ [],  // set_tier
+      (inputs.age >= 18) ? adult : minor,  // set_tier
     ]);
     const check_db_result: UserRecord = __check_db_r as UserRecord;
     results.check_db = check_db_result;

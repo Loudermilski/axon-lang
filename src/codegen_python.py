@@ -82,6 +82,28 @@ def build_deps_py(nodes: List[Node]) -> Dict[str, Set[str]]:
 
 def compute_to_py(op: ComputeOp, node_out_types: Dict[str, str] = None) -> str:
     expr = op.expression.strip()
+
+    # Handle Ternary MAP: MAP cond -> true_val, false_val
+    ternary_match = re.search(r'^(.*)\s*->\s*(.*)\s*,\s*(.*)$', expr)
+    if op.function == "MAP" and ternary_match:
+        cond, v_true, v_false = ternary_match.groups()
+        # Better replacement for IN.field
+        cond = re.sub(r'IN\s*\.\s*(\w+)', r"inputs.get('\1')", cond)
+
+        def quote_if_str(v):
+            v = v.strip()
+            if v in ("true", "false", "null") or v.replace('.','',1).isdigit():
+                return v.replace("true", "True").replace("false", "False").replace("null", "None")
+            return f"'{v}'" if not (v.startswith("'") or v.startswith('"')) else v
+
+        return f"{quote_if_str(v_true)} if {cond.strip()} else {quote_if_str(v_false)}"
+
+    # Handle basic math: SUM IN.val * 2
+    math_match = re.match(r'^IN\s*\.\s*(\w+)\s*([\+\-\*\/])\s*(.*)$', expr)
+    if op.function == "SUM" and math_match:
+        var, op_char, val = math_match.groups()
+        return f"inputs.get('{var}') {op_char} {val.strip()}"
+
     array_match = re.match(r'^(\w+)\s*\[\s*\]\s*\.(.*)', expr)
     if op.function == "SUM" and array_match:
         col = array_match.group(1)
@@ -231,6 +253,11 @@ class PythonGenerator:
         self.e("def axon_assert(condition: bool, description: str) -> None:")
         self.e("    if not condition:")
         self.e("        raise AxonFaultError('assertion_failed', {'condition': description})")
+        self.e()
+        self.e("# Runtime Globals (Mock or injected at runtime)")
+        self.e("db: dict[str, Any] = {}")
+        self.e("mcp: dict[str, Any] = {}")
+        self.e("notify: Any = None")
         self.e()
         self.e("class HumanUtility:")
         self.i()
