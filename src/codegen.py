@@ -157,6 +157,14 @@ def op_to_ts(op: Operation, node_name: str, types: Dict[str, str] = None) -> str
     elif isinstance(op, McpOp):
         args = json_obj_to_ts(op.args, t) if op.args else "{}"
         return f"await mcp.{op.server}.{op.tool}({args})"
+    elif isinstance(op, HumanOp):
+        if op.kind == "approve":
+            return f"await human.approve({ref_to_ts(op.prompt, t)})"
+        else:
+            return f"await human.input({ref_to_ts(op.prompt, t)})"
+    elif isinstance(op, CallOp):
+        args = json_obj_to_ts(op.args, t) if op.args else "{}"
+        return f"await {op.graph_name}({args})"
     return "/* unsupported op */"
 
 
@@ -185,8 +193,7 @@ def validate_graph(graph: Graph):
 
 def build_deps(nodes: List[Node]) -> Dict[str, Set[str]]:
     names = {n.name for n in nodes}
-    deps = {n.name: set(a for a in n.after if a in names) for n in nodes}
-    return deps
+    return {n.name: n.get_dependencies(names) for n in nodes}
 
 
 def topo_waves(deps: Dict[str, Set[str]]) -> List[List[str]]:
@@ -219,10 +226,29 @@ class TypeScriptGenerator:
 
     def generate(self, program: Program) -> str:
         self._header()
+        for ct in program.custom_types:
+            self._custom_type(ct)
         for graph in program.graphs:
             validate_graph(graph)
             self._graph(graph)
         return "\n".join(self.out)
+
+    def _custom_type(self, ct: CustomType):
+        self.e(f"export class {ct.name} {{")
+        self.i()
+        for field in ct.fields:
+            self.e(f"public {field.name}: {ts_type(field.type)};")
+        self.e()
+        self.e("constructor(data: any) {")
+        self.i()
+        for field in ct.fields:
+            self.e(f"this.{field.name} = data.{field.name};")
+            v = SEMANTIC_VALIDATORS.get(field.type.name)
+            if v:
+                self.e(v.format(val=f"this.{field.name}", name=f"{ct.name}.{field.name}"))
+        self.d(); self.e("}")
+        self.d(); self.e("}")
+        self.e()
 
     def _header(self):
         self.e("// ──────────────────────────────────────────────────────────────")
@@ -252,6 +278,7 @@ class TypeScriptGenerator:
         self.d(); self.e("}>;")
         self.e("declare const notify: { send: (to: string, tpl: string) => Promise<void>; };")
         self.e("declare const mcp:    Record<string, Record<string, (a: unknown) => Promise<unknown>>>;")
+        self.e("declare const human:  { approve: (p: string) => Promise<boolean>; input: (p: string) => Promise<string>; };")
         self.e()
 
     def _graph(self, graph: Graph):
@@ -270,11 +297,9 @@ class TypeScriptGenerator:
             if b.key == "latency":
                 latency_ms = b.value.replace("ms", "")
 
+        in_shape = "{ " + "; ".join(f"{p.name}: {ts_type(p.type)}" for p in graph.inputs) + " }"
         self.e(f"export async function {graph.name}(")
-        self.i()
-        for p in graph.inputs:
-            self.e(f"{p.name}: {ts_type(p.type)},")
-        self.d()
+        self.i(); self.e(f"inputs: {in_shape}"); self.d()
         self.e(f"): Promise<{ret_type}> {{")
         self.i()
 
@@ -283,11 +308,8 @@ class TypeScriptGenerator:
         for p in graph.inputs:
             v = SEMANTIC_VALIDATORS.get(p.type.name)
             if v:
-                self.e(v.format(val=p.name, name=p.name))
+                self.e(v.format(val=f"inputs.{p.name}", name=p.name))
         self.e()
-
-        in_shape = "{ " + "; ".join(f"{p.name}: {ts_type(p.type)}" for p in graph.inputs) + " }"
-        self.e(f"const inputs: {in_shape} = {{ {', '.join(p.name for p in graph.inputs)} }};")
         self.e("const results: Record<string, unknown> = {};")
         self.e("const rollbackStack: Array<() => Promise<void>> = [];")
         self.e()
@@ -337,7 +359,15 @@ class TypeScriptGenerator:
         vars_ = ", ".join(f"__{n}_r" for n in names)
         self.e(f"const [{vars_}] = await Promise.all(["); self.i()
         for node in nodes:
-            self.e(f"{op_to_ts(node.op, node.name, types)},  // {node.name}")
+            code = op_to_ts(node.op, node.name, types)
+            # Remove await if it's there, Promise.all handles the promises
+            if code.startswith("await "):
+                code = code[6:]
+            if node.if_cond:
+                cond = condition_to_ts(node.if_cond, types)
+                self.e(f"({cond}) ? {code} : Promise.resolve(null),  // {node.name}")
+            else:
+                self.e(f"{code},  // {node.name}")
         self.d(); self.e("]);")
         for node in nodes:
             if node.out:
@@ -355,9 +385,15 @@ class TypeScriptGenerator:
         bar = "─" * max(1, 46 - len(node.name))
         self.e(f"// ── NODE {node.name} {bar}")
 
+        if node.if_cond:
+            self.e(f"if ({condition_to_ts(node.if_cond, types)}) {{")
+            self.i()
+
         if node.is_async:
             code = op_to_ts(node.op, node.name, types)
             self.e(f"void (async () => {{ try {{ {code}; }} catch(e) {{ console.error('[AXON async {node.name}]', e); }} }})();")
+            if node.if_cond:
+                self.d(); self.e("}")
             self.e(); return
 
         code = op_to_ts(node.op, node.name, types)
@@ -383,6 +419,9 @@ class TypeScriptGenerator:
             if node.inverse and node.name in rollback_nodes:
                 inv = op_to_ts(node.inverse, node.name, types)
                 self.e(f"rollbackStack.push(async () => {{ {inv}; }});")
+
+        if node.if_cond:
+            self.d(); self.e("}")
 
         self.e()
 
