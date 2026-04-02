@@ -1,0 +1,61 @@
+TYPES {
+  Identity {
+    fullName<string>,
+    idNumber<string>,
+    country<string>
+  }
+  Profile {
+    email<email_address>,
+    verified<boolean>,
+    tier<string>
+  }
+}
+
+-- Sub-graph for high-risk verification
+GRAPH verify_identity
+  IN    id<Identity>
+  OUT   success<boolean>
+
+  NODE scan_document
+    OP      mcp.vision.scan({docId: IN.id.idNumber})
+    OUT     data<string>
+
+  NODE manual_check
+    IF scan_document.OUT == "flagged"
+    OP      human.approve("High risk document flagged. Approve?")
+    OUT     approved<boolean>
+
+  RETURN manual_check
+
+-- Main onboarding logic
+GRAPH onboarding_flow
+  IN    userEmail<email_address>, age<integer>, ident<Identity>
+  OUT   result<Profile>
+
+  NODE check_db
+    OP      db.read users WHERE email == IN.userEmail
+    OUT     existing<user_record>
+    FAULT   check_db != null -> HALT[already_exists]
+
+  NODE identity_check
+    IF IN.age >= 18
+    OP      CALL verify_identity({id: IN.ident})
+    OUT     isVerified<boolean>
+
+  NODE set_tier
+    OP      MAP IN.age >= 18 -> "adult", "minor" -- simplified logic
+    OUT     tier<string>
+
+  NODE create_user
+    OP      db.write users {
+              email: IN.userEmail,
+              status: "active",
+              verified: identity_check.OUT,
+              tier: set_tier.OUT
+            }
+    OUT     profile<Profile>
+    INVERSE db.delete users WHERE email == IN.userEmail
+    AFTER   check_db, identity_check, set_tier
+
+  RETURN create_user
+  ROLLBACK ON FAULT [create_user]

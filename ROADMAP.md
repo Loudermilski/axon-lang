@@ -60,20 +60,29 @@ Every generation of programming language traded control for expressiveness. Asse
 - Add BUDGET runtime wrapper generation
 - Unit test suite (pytest)
 
-### Phase 3 — Power Features
-- `CONFIDENCE` type modifier — `Confident<email_address>` vs `Uncertain<email_address>`
+### Phase 3 — Complex Logic & Modularity (DONE ✓)
+- `TYPES` block — user-defined semantic data structures with validation rules
+- `IF` clause — conditional node execution
+- `CALL` operation — graph modularity and sub-graph execution
+- `HUMAN` operation — `human.approve` and `human.input` constructs
 - `MCP` operation type — native MCP server call syntax
-- `HUMAN` operation — `await human.approve(decision)` construct
-- `TYPES` block — user-defined semantic types with validation rules
-- Python compile target (alongside TypeScript)
+- Python compile target (v0.2 unified with TypeScript)
 
-### Phase 4 — Tooling
+### Phase 4 — Advanced Language Constructs
+- `FOR EACH` / `WHILE` — native iteration and loop primitives
+- `MATCH` — structural pattern matching for complex branching
+- `STREAM` — support for streaming response tokens (e.g., LLM outputs)
+- `ACTORS` — stateful nodes with local memory across executions
+- `CONFIDENCE` types — `Confident<T>` vs `Uncertain<T>` metadata
+
+### Phase 5 — Tooling & Visualization
+- Execution graph visualizer (Mermaid generator — DONE ✓)
 - VS Code extension (syntax highlighting + error squiggles)
 - AXON Language Server Protocol (LSP) implementation
 - Web playground (AXON in → TypeScript out, live)
 - AXON formatter (canonical form enforcement)
 
-### Phase 5 — Runtime
+### Phase 6 — Runtime
 - AXON runtime library (npm package: `@axon-lang/runtime`)
 - Native MCP boundary declarations
 - Cost tracking middleware
